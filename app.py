@@ -6,11 +6,10 @@ import streamlit as st
 st.set_page_config(page_title="Просмотр базы упоминаний", layout="wide")
 st.title("Просмотр базы данных упоминаний")
 
-DB_PATH = "newspapers.db"  # лежит рядом с app.py
+DB_PATH = "newspapers.db"  # файл лежит рядом с app.py
 
 
 def open_connection():
-    """Открываем одно соединение к БД."""
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(f"Файл базы данных не найден: {os.path.abspath(DB_PATH)}")
     return sqlite3.connect(DB_PATH)
@@ -18,14 +17,9 @@ def open_connection():
 
 @st.cache_data(ttl=300)
 def load_data_single_connection():
-    """
-    Одна функция: и проверяет таблицы, и читает данные,
-    используя одно и то же соединение.
-    """
     conn = open_connection()
     cur = conn.cursor()
 
-    # Проверим таблицы
     tables = cur.execute(
         "SELECT name FROM sqlite_master WHERE type='table';"
     ).fetchall()
@@ -38,13 +32,11 @@ def load_data_single_connection():
             f"Найдены таблицы: {table_names}"
         )
 
-    # Пробуем прочитать несколько строк напрямую через cursor — без pandas
     sample = cur.execute(
         "SELECT id, newspaper_name, publication_date, person_name, context, pdf_filename "
         "FROM newspaper_mentions LIMIT 5;"
     ).fetchall()
 
-    # Теперь читаем тем же соединением через pandas
     try:
         df_local = pd.read_sql_query(
             """
@@ -70,17 +62,14 @@ def load_data_single_connection():
 try:
     df, table_names, sample_rows = load_data_single_connection()
 except Exception as e:
-    # Выведем максимум информации
     size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     st.error(
         f"Ошибка при работе с БД.\n\n"
         f"Файл: {os.path.abspath(DB_PATH)} (размер: {size} байт)\n\n"
-        f"Таблицы: {table_names if 'table_names' in locals() else '—'}\n\n"
         f"Ошибка: {e}"
     )
     st.stop()
 
-# Отладка в сайдбаре (можно потом убрать)
 size = os.path.getsize(DB_PATH)
 st.sidebar.markdown(f"**Файл БД:** `{os.path.abspath(DB_PATH)}`")
 st.sidebar.markdown(f"**Размер файла:** {size} байт")
@@ -99,10 +88,12 @@ name_filter = st.sidebar.text_input("Поиск по имени человека
 if name_filter:
     df = df[df["Имя"].astype(str).str.contains(name_filter, case=False, na=False)]
 
-# Фильтр по газете
-gazeta_series = df["Газета"].astype(str).str.strip()
-gazeta_series = gazeta_series[gazeta_series != ""]
-newspaper_list = sorted(list(set(gazeta_series.tolist())))
+# ======== ФИЛЬТР ПО ГАЗЕТЕ (без tolist/set/unique) ========
+# Берём значения, убираем NaN и пустые строки, всё переводим в str
+gazeta_values = df["Газета"].dropna()
+gazeta_values = gazeta_values[gazeta_values.astype(str).str.strip() != ""]
+# pd.unique возвращает массив, дальше просто sorted(map(str, ...))
+newspaper_list = sorted(map(str, pd.unique(gazeta_values)))
 
 selected_newspapers = st.sidebar.multiselect(
     "Газета",
@@ -112,7 +103,7 @@ selected_newspapers = st.sidebar.multiselect(
 )
 
 if selected_newspapers:
-    df = df[df["Газета"].astype(str).str.strip().isin(selected_newspapers)]
+    df = df[df["Газета"].astype(str).isin(selected_newspapers)]
 
 # Фильтр по дате
 df["Дата"] = pd.to_datetime(df["Дата"], errors="coerce")
