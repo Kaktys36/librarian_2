@@ -6,33 +6,28 @@ import streamlit as st
 st.set_page_config(page_title="Просмотр базы упоминаний", layout="wide")
 st.title("Просмотр базы данных упоминаний")
 
-# Если БД лежит рядом с app.py:
-DB_PATH = "newspapers.db"
+DB_PATH = "newspapers.db"  # лежит рядом с app.py
 
 
 @st.cache_data(ttl=300)
-def load_data():
-    # 1. Проверяем, что файл БД вообще существует
+def inspect_db():
+    """Проверяем наличие файла и таблиц, возвращаем список таблиц."""
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(f"Файл базы данных не найден: {os.path.abspath(DB_PATH)}")
 
     conn = sqlite3.connect(DB_PATH)
-
-    # 2. Проверяем, есть ли таблица newspaper_mentions
     cur = conn.cursor()
     tables = cur.execute(
         "SELECT name FROM sqlite_master WHERE type='table';"
     ).fetchall()
-    table_names = {t[0] for t in tables}
+    conn.close()
+    return [t[0] for t in tables]
 
-    if "newspaper_mentions" not in table_names:
-        conn.close()
-        raise RuntimeError(
-            f"В БД {os.path.abspath(DB_PATH)} нет таблицы 'newspaper_mentions'. "
-            f"Найдены таблицы: {table_names}"
-        )
 
-    # 3. Читаем данные
+@st.cache_data(ttl=300)
+def load_data():
+    """Читаем данные из newspaper_mentions, если таблица есть."""
+    conn = sqlite3.connect(DB_PATH)
     try:
         df_local = pd.read_sql_query(
             """
@@ -50,19 +45,36 @@ def load_data():
         )
     finally:
         conn.close()
-
     return df_local
 
 
-# --- безопасный вызов загрузки ---
+# ---- сначала посмотрим, что внутри БД ----
+try:
+    table_names = inspect_db()
+except Exception as e:
+    st.error(f"Ошибка при проверке БД: {e}")
+    st.stop()
+
+st.sidebar.markdown(f"**Файл БД:** `{os.path.abspath(DB_PATH)}`")
+st.sidebar.markdown(f"**Таблицы в БД:** {table_names}")
+
+if "newspaper_mentions" not in table_names:
+    st.error(
+        "В базе данных нет таблицы `newspaper_mentions`.\n\n"
+        f"Найдены таблицы: {table_names}\n\n"
+        "Проверьте, что вы загрузили правильный файл `newspapers.db`."
+    )
+    st.stop()
+
+# ---- теперь пробуем загрузить данные из newspaper_mentions ----
 try:
     df = load_data()
 except Exception as e:
-    st.error(f"Ошибка при загрузке данных: {e}")
+    st.error(f"Ошибка при чтении таблицы `newspaper_mentions`: {e}")
     st.stop()
 
 if df.empty:
-    st.error("База данных пуста")
+    st.error("Таблица `newspaper_mentions` пуста.")
     st.stop()
 
 # ==================== БОКОВАЯ ПАНЕЛЬ ====================
