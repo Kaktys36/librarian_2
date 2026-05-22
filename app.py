@@ -8,7 +8,7 @@ st.title("Просмотр базы данных упоминаний")
 @st.cache_data(ttl=300)
 def load_data():
     conn = sqlite3.connect("newspapers.db")
-    df = pd.read_sql_query("""
+    df_local = pd.read_sql_query("""
         SELECT 
             id,
             newspaper_name AS Газета,
@@ -20,18 +20,13 @@ def load_data():
         ORDER BY publication_date, newspaper_name, person_name
     """, conn)
     conn.close()
-    return df
+    return df_local
 
-df = load_data()
+df = load_data()  # только тут создаём df и больше его не трогаем как "класс"
 
 if df.empty:
     st.error("База данных пуста")
     st.stop()
-
-# Отладка: можно оставить или потом закомментировать
-st.write("Тип df:", type(df))
-st.write("Колонки:", df.columns.tolist())
-st.write("Первые значения 'Газета':", df["Газета"].head().tolist())
 
 # ==================== БОКОВАЯ ПАНЕЛЬ ====================
 st.sidebar.header("Фильтры")
@@ -41,16 +36,10 @@ name_filter = st.sidebar.text_input("Поиск по имени человека
 if name_filter:
     df = df[df["Имя"].astype(str).str.contains(name_filter, case=False, na=False)]
 
-# Фильтр по газете — показываем ВСЕ реальные названия из базы
-try:
-    # приводим к строке, убираем NaN/None и пустые строки
-    gazeta_series = df["Газета"].astype(str).str.strip()
-    gazeta_series = gazeta_series[gazeta_series != ""]
-    # set(...) + list(...) — максимально простой путь, избегаем .unique
-    newspaper_list = sorted(list(set(gazeta_series.tolist())))
-except Exception as e:
-    st.warning(f"Не удалось сформировать список газет: {e}")
-    newspaper_list = []
+# Фильтр по газете
+gazeta_series = df["Газета"].astype(str).str.strip()
+gazeta_series = gazeta_series[gazeta_series != ""]
+newspaper_list = sorted(list(set(gazeta_series.tolist())))
 
 selected_newspapers = st.sidebar.multiselect(
     "Газета",
@@ -65,7 +54,6 @@ if selected_newspapers:
 # Фильтр по дате
 df["Дата"] = pd.to_datetime(df["Дата"], errors='coerce')
 
-# если вдруг все даты не разобрались
 if df["Дата"].notna().any():
     min_date = df["Дата"].min().date()
     max_date = df["Дата"].max().date()
@@ -80,8 +68,6 @@ if df["Дата"].notna().any():
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
         df = df[(df["Дата"].dt.date >= start_date) & (df["Дата"].dt.date <= end_date)]
-else:
-    st.sidebar.warning("Не удалось распознать даты, фильтр по дате отключён.")
 
 st.sidebar.markdown(f"**Найдено записей:** {len(df)}")
 
@@ -89,8 +75,6 @@ st.sidebar.markdown(f"**Найдено записей:** {len(df)}")
 st.subheader(f"📋 Список упоминаний ({len(df)} записей)")
 
 page_size = st.selectbox("Записей на странице", [20, 50, 100, 200], index=0)
-
-# ограничим номер страницы по максимуму
 max_page = max(1, (len(df) - 1) // page_size + 1)
 page_num = st.number_input("Страница", min_value=1, max_value=max_page, value=1, step=1)
 
