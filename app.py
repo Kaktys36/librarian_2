@@ -34,19 +34,23 @@ st.sidebar.header("Фильтры")
 # Фильтр по имени
 name_filter = st.sidebar.text_input("Поиск по имени человека", "")
 if name_filter:
-    df = df[df["Имя"].str.contains(name_filter, case=False, na=False)]
+    df = df[df["Имя"].astype(str).str.contains(name_filter, case=False, na=False)]
 
 # Фильтр по газете — показываем ВСЕ реальные названия из базы
-newspaper_list = sorted(df["Газета"].unique())
+# приводим к строке, убираем NaN/None и пустые строки
+gazeta_series = df["Газета"].astype(str).str.strip()
+gazeta_series = gazeta_series[gazeta_series != ""]
+newspaper_list = sorted(gazeta_series.unique())
+
 selected_newspapers = st.sidebar.multiselect(
     "Газета",
     options=newspaper_list,
-    default=newspaper_list,      # по умолчанию выбраны все
+    default=newspaper_list,
     help="Можно выбрать несколько"
 )
 
 if selected_newspapers:
-    df = df[df["Газета"].isin(selected_newspapers)]
+    df = df[df["Газета"].astype(str).str.strip().isin(selected_newspapers)]
 
 # Фильтр по дате
 df["Дата"] = pd.to_datetime(df["Дата"], errors='coerce')
@@ -60,17 +64,20 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
-if len(date_range) == 2:
+if isinstance(date_range, tuple) and len(date_range) == 2:
     start_date, end_date = date_range
     df = df[(df["Дата"].dt.date >= start_date) & (df["Дата"].dt.date <= end_date)]
 
 st.sidebar.markdown(f"**Найдено записей:** {len(df)}")
 
 # ==================== ТАБЛИЦА ====================
-st.subheader(f"Список упоминаний ({len(df)} записей)")
+st.subheader(f"📋 Список упоминаний ({len(df)} записей)")
 
 page_size = st.selectbox("Записей на странице", [20, 50, 100, 200], index=0)
-page_num = st.number_input("Страница", min_value=1, value=1, step=1)
+
+# ограничим номер страницы по максимуму
+max_page = max(1, (len(df) - 1) // page_size + 1)
+page_num = st.number_input("Страница", min_value=1, max_value=max_page, value=1, step=1)
 
 start_idx = (page_num - 1) * page_size
 end_idx = start_idx + page_size
@@ -98,7 +105,7 @@ if not page_df.empty:
         format_func=lambda i: f"{page_df.loc[i, 'Имя']} — {page_df.loc[i, 'Газета']} ({page_df.loc[i, 'Дата'].date()})"
     )
     
-    with st.expander("📄 Полный текст контекста", expanded=True):
+    with st.expander("Полный текст контекста", expanded=True):
         st.markdown(page_df.loc[selected_idx, "Контекст"])
 
 # Экспорт
