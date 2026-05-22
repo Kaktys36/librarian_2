@@ -1,28 +1,65 @@
-import streamlit as st
-import pandas as pd
+import os
 import sqlite3
+import pandas as pd
+import streamlit as st
 
 st.set_page_config(page_title="Просмотр базы упоминаний", layout="wide")
 st.title("Просмотр базы данных упоминаний")
 
+# Если БД лежит рядом с app.py:
+DB_PATH = "newspapers.db"
+
+
 @st.cache_data(ttl=300)
 def load_data():
-    conn = sqlite3.connect("newspapers.db")
-    df_local = pd.read_sql_query("""
-        SELECT 
-            id,
-            newspaper_name AS Газета,
-            publication_date AS Дата,
-            person_name AS Имя,
-            context AS Контекст,
-            pdf_filename AS Файл
-        FROM newspaper_mentions
-        ORDER BY publication_date, newspaper_name, person_name
-    """, conn)
-    conn.close()
+    # 1. Проверяем, что файл БД вообще существует
+    if not os.path.exists(DB_PATH):
+        raise FileNotFoundError(f"Файл базы данных не найден: {os.path.abspath(DB_PATH)}")
+
+    conn = sqlite3.connect(DB_PATH)
+
+    # 2. Проверяем, есть ли таблица newspaper_mentions
+    cur = conn.cursor()
+    tables = cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table';"
+    ).fetchall()
+    table_names = {t[0] for t in tables}
+
+    if "newspaper_mentions" not in table_names:
+        conn.close()
+        raise RuntimeError(
+            f"В БД {os.path.abspath(DB_PATH)} нет таблицы 'newspaper_mentions'. "
+            f"Найдены таблицы: {table_names}"
+        )
+
+    # 3. Читаем данные
+    try:
+        df_local = pd.read_sql_query(
+            """
+            SELECT 
+                id,
+                newspaper_name AS Газета,
+                publication_date AS Дата,
+                person_name AS Имя,
+                context AS Контекст,
+                pdf_filename AS Файл
+            FROM newspaper_mentions
+            ORDER BY publication_date, newspaper_name, person_name
+            """,
+            conn,
+        )
+    finally:
+        conn.close()
+
     return df_local
 
-df = load_data()  # только тут создаём df и больше его не трогаем как "класс"
+
+# --- безопасный вызов загрузки ---
+try:
+    df = load_data()
+except Exception as e:
+    st.error(f"Ошибка при загрузке данных: {e}")
+    st.stop()
 
 if df.empty:
     st.error("База данных пуста")
@@ -45,14 +82,14 @@ selected_newspapers = st.sidebar.multiselect(
     "Газета",
     options=newspaper_list,
     default=newspaper_list,
-    help="Можно выбрать несколько"
+    help="Можно выбрать несколько",
 )
 
 if selected_newspapers:
     df = df[df["Газета"].astype(str).str.strip().isin(selected_newspapers)]
 
 # Фильтр по дате
-df["Дата"] = pd.to_datetime(df["Дата"], errors='coerce')
+df["Дата"] = pd.to_datetime(df["Дата"], errors="coerce")
 
 if df["Дата"].notna().any():
     min_date = df["Дата"].min().date()
@@ -62,12 +99,17 @@ if df["Дата"].notna().any():
         "Диапазон дат",
         value=(min_date, max_date),
         min_value=min_date,
-        max_value=max_date
+        max_value=max_date,
     )
 
     if isinstance(date_range, tuple) and len(date_range) == 2:
         start_date, end_date = date_range
-        df = df[(df["Дата"].dt.date >= start_date) & (df["Дата"].dt.date <= end_date)]
+        df = df[
+            (df["Дата"].dt.date >= start_date)
+            & (df["Дата"].dt.date <= end_date)
+        ]
+else:
+    st.sidebar.warning("Не удалось распознать даты, фильтр по дате отключён.")
 
 st.sidebar.markdown(f"**Найдено записей:** {len(df)}")
 
@@ -92,7 +134,7 @@ st.dataframe(
         "Газета": st.column_config.TextColumn("Газета", width="medium"),
         "Дата": st.column_config.DateColumn("Дата", format="YYYY-MM-DD"),
         "Контекст": st.column_config.TextColumn("Контекст", width="large"),
-    }
+    },
 )
 
 # Детальный просмотр
@@ -101,9 +143,9 @@ if not page_df.empty:
     selected_idx = st.selectbox(
         "Выберите строку для просмотра полного контекста:",
         options=page_df.index,
-        format_func=lambda i: f"{page_df.loc[i, 'Имя']} — {page_df.loc[i, 'Газета']} ({page_df.loc[i, 'Дата'].date()})"
+        format_func=lambda i: f"{page_df.loc[i, 'Имя']} — {page_df.loc[i, 'Газета']} ({page_df.loc[i, 'Дата'].date()})",
     )
-    
+
     with st.expander("Полный текст контекста", expanded=True):
         st.markdown(page_df.loc[selected_idx, "Контекст"])
 
@@ -114,5 +156,5 @@ if st.button("Экспорт отфильтрованных данных в CSV"
         label="Скачать CSV",
         data=csv,
         file_name="упоминания_газет.csv",
-        mime="text/csv"
+        mime="text/csv",
     )
