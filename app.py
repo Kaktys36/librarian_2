@@ -3,7 +3,7 @@ import pandas as pd
 import sqlite3
 
 st.set_page_config(page_title="Просмотр базы упоминаний", layout="wide")
-st.title("📰 Просмотр базы данных упоминаний")
+st.title("Просмотр базы данных упоминаний")
 
 @st.cache_data(ttl=300)
 def load_data():
@@ -29,7 +29,7 @@ if df.empty:
     st.stop()
 
 # ==================== БОКОВАЯ ПАНЕЛЬ ====================
-st.sidebar.header("🔍 Фильтры")
+st.sidebar.header("Фильтры")
 
 # Фильтр по имени
 name_filter = st.sidebar.text_input("Поиск по имени человека", "")
@@ -67,7 +67,7 @@ if len(date_range) == 2:
 st.sidebar.markdown(f"**Найдено записей:** {len(df)}")
 
 # ==================== ТАБЛИЦА ====================
-st.subheader(f"📋 Список упоминаний ({len(df)} записей)")
+st.subheader(f"Список упоминаний ({len(df)} записей)")
 
 page_size = st.selectbox("Записей на странице", [20, 50, 100, 200], index=0)
 page_num = st.number_input("Страница", min_value=1, value=1, step=1)
@@ -90,7 +90,7 @@ st.dataframe(
 )
 
 # Детальный просмотр
-st.subheader("🔎 Полный контекст записи")
+st.subheader("Полный контекст записи")
 if not page_df.empty:
     selected_idx = st.selectbox(
         "Выберите строку для просмотра полного контекста:",
@@ -102,7 +102,7 @@ if not page_df.empty:
         st.markdown(page_df.loc[selected_idx, "Контекст"])
 
 # Экспорт
-if st.button("📥 Экспорт отфильтрованных данных в CSV"):
+if st.button("Экспорт отфильтрованных данных в CSV"):
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button(
         label="Скачать CSV",
