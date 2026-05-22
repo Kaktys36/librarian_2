@@ -9,25 +9,42 @@ st.title("Просмотр базы данных упоминаний")
 DB_PATH = "newspapers.db"  # лежит рядом с app.py
 
 
-@st.cache_data(ttl=300)
-def inspect_db():
-    """Проверяем наличие файла и таблиц, возвращаем список таблиц."""
+def open_connection():
+    """Открываем одно соединение к БД."""
     if not os.path.exists(DB_PATH):
         raise FileNotFoundError(f"Файл базы данных не найден: {os.path.abspath(DB_PATH)}")
+    return sqlite3.connect(DB_PATH)
 
-    conn = sqlite3.connect(DB_PATH)
+
+@st.cache_data(ttl=300)
+def load_data_single_connection():
+    """
+    Одна функция: и проверяет таблицы, и читает данные,
+    используя одно и то же соединение.
+    """
+    conn = open_connection()
     cur = conn.cursor()
+
+    # Проверим таблицы
     tables = cur.execute(
         "SELECT name FROM sqlite_master WHERE type='table';"
     ).fetchall()
-    conn.close()
-    return [t[0] for t in tables]
+    table_names = [t[0] for t in tables]
 
+    if "newspaper_mentions" not in table_names:
+        conn.close()
+        raise RuntimeError(
+            f"В БД {os.path.abspath(DB_PATH)} нет таблицы 'newspaper_mentions'. "
+            f"Найдены таблицы: {table_names}"
+        )
 
-@st.cache_data(ttl=300)
-def load_data():
-    """Читаем данные из newspaper_mentions, если таблица есть."""
-    conn = sqlite3.connect(DB_PATH)
+    # Пробуем прочитать несколько строк напрямую через cursor — без pandas
+    sample = cur.execute(
+        "SELECT id, newspaper_name, publication_date, person_name, context, pdf_filename "
+        "FROM newspaper_mentions LIMIT 5;"
+    ).fetchall()
+
+    # Теперь читаем тем же соединением через pandas
     try:
         df_local = pd.read_sql_query(
             """
@@ -45,33 +62,30 @@ def load_data():
         )
     finally:
         conn.close()
-    return df_local
+
+    return df_local, table_names, sample
 
 
-# ---- сначала посмотрим, что внутри БД ----
+# ---- загрузка ----
 try:
-    table_names = inspect_db()
+    df, table_names, sample_rows = load_data_single_connection()
 except Exception as e:
-    st.error(f"Ошибка при проверке БД: {e}")
-    st.stop()
-
-st.sidebar.markdown(f"**Файл БД:** `{os.path.abspath(DB_PATH)}`")
-st.sidebar.markdown(f"**Таблицы в БД:** {table_names}")
-
-if "newspaper_mentions" not in table_names:
+    # Выведем максимум информации
+    size = os.path.getsize(DB_PATH) if os.path.exists(DB_PATH) else 0
     st.error(
-        "В базе данных нет таблицы `newspaper_mentions`.\n\n"
-        f"Найдены таблицы: {table_names}\n\n"
-        "Проверьте, что вы загрузили правильный файл `newspapers.db`."
+        f"Ошибка при работе с БД.\n\n"
+        f"Файл: {os.path.abspath(DB_PATH)} (размер: {size} байт)\n\n"
+        f"Таблицы: {table_names if 'table_names' in locals() else '—'}\n\n"
+        f"Ошибка: {e}"
     )
     st.stop()
 
-# ---- теперь пробуем загрузить данные из newspaper_mentions ----
-try:
-    df = load_data()
-except Exception as e:
-    st.error(f"Ошибка при чтении таблицы `newspaper_mentions`: {e}")
-    st.stop()
+# Отладка в сайдбаре (можно потом убрать)
+size = os.path.getsize(DB_PATH)
+st.sidebar.markdown(f"**Файл БД:** `{os.path.abspath(DB_PATH)}`")
+st.sidebar.markdown(f"**Размер файла:** {size} байт")
+st.sidebar.markdown(f"**Таблицы в БД:** {table_names}")
+st.sidebar.markdown(f"**Первые 5 строк (сырой запрос):** {sample_rows}")
 
 if df.empty:
     st.error("Таблица `newspaper_mentions` пуста.")
